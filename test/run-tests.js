@@ -22,6 +22,7 @@ import {
 import { generateLayout, validateLayout } from '../js/levelgen/layout.js';
 import { generateLevel } from '../js/levelgen/index.js';
 import { validateLevel } from '../js/levelgen/validate.js';
+import { createPlayer, hop } from '../js/player.js';
 
 let passed = 0;
 let failed = 0;
@@ -364,6 +365,108 @@ check('unmutated level passes independent checker', layoutViolations(base).lengt
     m.grid[r - 1][c] = { base: 'water', obstacle: null };
   }
   check('removed goal-river supports fail BFS', validateLevel(m).ok, false);
+}
+
+// --- M4: Bob movement, win/lose, difficulty persistence ---
+
+console.log('M4: Bob movement (synthetic grid):');
+
+function makeTestGrid() {
+  const grid = [];
+  for (let r = 0; r < GRID_ROWS; r++) {
+    grid.push(Array.from({ length: GRID_COLS }, () => ({ base: 'grass', obstacle: null })));
+  }
+  return grid;
+}
+
+const g = makeTestGrid();
+const p = createPlayer(g);
+check('player starts on row 0', p.row, 0);
+check('player starts in bounds', p.col >= 0 && p.col < GRID_COLS, true);
+
+// Orthogonal hops move exactly one cell.
+p.row = 0;
+p.col = 5;
+let hopRes = hop(p, 'up', g);
+check('hop up moves one cell', p.row, 1);
+check('hop up is a plain move', hopRes.result, 'moved');
+hopRes = hop(p, 'left', g);
+check('hop left moves one cell', p.col, 4);
+hopRes = hop(p, 'down', g);
+check('hop down returns to row 0', p.row, 0);
+
+// Out-of-bounds hops are ignored (no move, no crash).
+p.row = 0;
+p.col = 0;
+hopRes = hop(p, 'left', g);
+check('hop left at col 0 is blocked', hopRes.result, 'blocked');
+check('hop left at col 0 does not move', p.col, 0);
+p.col = GRID_COLS - 1;
+hopRes = hop(p, 'right', g);
+check('hop right at last col is blocked', hopRes.result, 'blocked');
+hopRes = hop(p, 'down', g);
+check('hop down from row 0 is blocked', hopRes.result, 'blocked');
+check('hop down from row 0 does not move', p.row, 0);
+
+// Unknown direction is a no-op.
+hopRes = hop(p, 'diagonal', g);
+check('diagonal hop is blocked', hopRes.result, 'blocked');
+
+// Obstacles: bushes and pylons block the hop.
+g[1][5] = { base: 'grass', obstacle: 'bush' };
+p.row = 0;
+p.col = 5;
+hopRes = hop(p, 'up', g);
+check('hop into a bush is blocked', hopRes.result, 'blocked');
+check('hop into a bush does not move', p.row, 0);
+g[1][5] = { base: 'sidewalk', obstacle: 'pylon' };
+hopRes = hop(p, 'up', g);
+check('hop into a pylon is blocked', hopRes.result, 'blocked');
+
+// Water: drown.
+g[1][5] = { base: 'water', obstacle: null };
+hopRes = hop(p, 'up', g);
+check('hop into water drowns', hopRes.result, 'drowned');
+check('drowned hop moves Bob into the water', p.row, 1);
+
+// A plain lilypad is safe traversal (no win).
+g[1][5] = { base: 'lilypad', obstacle: null };
+p.row = 0;
+p.col = 5;
+hopRes = hop(p, 'up', g);
+check('hop onto a plain lilypad is a plain move', hopRes.result, 'moved');
+
+// A Localhost Lilypad wins.
+g[1][5] = { base: 'localhost-lilypad', obstacle: null };
+p.row = 0;
+p.col = 5;
+hopRes = hop(p, 'up', g);
+check('hop onto a Localhost Lilypad wins', hopRes.result, 'win');
+
+// State transitions for the M4 outcomes.
+check('win transition: PLAYING + WIN -> WIN', nextState(STATE.PLAYING, EVENT.WIN), STATE.WIN);
+check('drown transition: PLAYING + DIE -> GAME_OVER', nextState(STATE.PLAYING, EVENT.DIE), STATE.GAME_OVER);
+
+console.log('M4: difficulty persistence (speed formula):');
+// speed = min(4 + completions, 8); completions persist across levels.
+check('completions 0 -> speed 4', generateLevel(0).speed, 4);
+check('completions 3 -> speed 7', generateLevel(3).speed, 7);
+check('completions 4 -> speed 8 (cap)', generateLevel(4).speed, 8);
+check('completions 10 -> speed 8 (cap)', generateLevel(10).speed, 8);
+
+// M3 carry-over: the forced-fix fallback (strip all obstacles) must be
+// exercised by a test. Wall the grass row above the goal river, confirm
+// the validator fails, then strip every obstacle and confirm it passes.
+console.log('M3 carry-over: forced-fix fallback (strip obstacles):');
+{
+  const m = cloneLevel(base);
+  const r = GRID_ROWS - 3; // always the grass row above the goal river
+  for (let c = 0; c < GRID_COLS; c++) m.grid[r][c].obstacle = 'bush';
+  check('walled row above goal river fails BFS', validateLevel(m).ok, false);
+  for (let rr = 0; rr < GRID_ROWS; rr++) {
+    for (let c = 0; c < GRID_COLS; c++) m.grid[rr][c].obstacle = null;
+  }
+  check('stripping all obstacles makes the level validate', validateLevel(m).ok, true);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -11,6 +11,9 @@ const COLORS = {
   water: '#3a6ea8',
   lilypad: '#7fc46a',
   localhostLilypad: '#ffd23f',
+  bush: '#2d5e28',
+  pylon: '#8a8a8a',
+  player: '#59d64e',
   gridLine: 'rgba(0, 0, 0, 0.18)',
   debugText: 'rgba(255, 255, 255, 0.55)',
   titleText: '#e8e8e8',
@@ -51,6 +54,25 @@ export function drawGrid(ctx, cellPx, debug = true) {
 
   drawGridLines(ctx, cellPx);
   if (debug) drawDebugLabels(ctx, cellPx);
+}
+
+// Draw bushes and pylons on top of the base cells.
+function drawObstacles(ctx, cellPx, grid) {
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const y = (GRID_ROWS - 1 - row) * cellPx;
+    for (let col = 0; col < GRID_COLS; col++) {
+      const cell = grid[row][col];
+      if (cell.obstacle === 'bush') {
+        ctx.fillStyle = COLORS.bush;
+        ctx.beginPath();
+        ctx.arc(col * cellPx + cellPx / 2, y + cellPx / 2, cellPx * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (cell.obstacle === 'pylon') {
+        ctx.fillStyle = COLORS.pylon;
+        ctx.fillRect(col * cellPx + cellPx * 0.25, y + cellPx * 0.2, cellPx * 0.5, cellPx * 0.6);
+      }
+    }
+  }
 }
 
 function drawGridLines(ctx, cellPx) {
@@ -99,8 +121,21 @@ export function drawLayout(ctx, cellPx, layout, debug = true) {
     }
   }
 
+  drawObstacles(ctx, cellPx, grid);
   drawGridLines(ctx, cellPx);
   if (debug) drawDebugLabels(ctx, cellPx);
+}
+
+/**
+ * Draw Bob the Frog on his current cell.
+ */
+export function drawPlayer(ctx, cellPx, player) {
+  const x = player.col * cellPx;
+  const y = (GRID_ROWS - 1 - player.row) * cellPx;
+  ctx.fillStyle = COLORS.player;
+  ctx.beginPath();
+  ctx.arc(x + cellPx / 2, y + cellPx / 2, cellPx * 0.38, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 /**
@@ -117,5 +152,39 @@ export function drawTitleOverlay(ctx, cellPx, width, height) {
   ctx.fillText('UNBIASED BOB CHALLENGE', width / 2, height / 2 - cellPx * 2);
   ctx.font = `${Math.floor(cellPx)}px system-ui`;
   ctx.fillText('click or press Enter to start', width / 2, height / 2);
+  ctx.textAlign = 'left';
+}
+
+/**
+ * GAME OVER overlay: Bob drowned or was squished.
+ */
+export function drawGameOverOverlay(ctx, cellPx, width, height) {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = COLORS.titleText;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `bold ${Math.floor(cellPx * 1.5)}px system-ui`;
+  ctx.fillText('GAME OVER', width / 2, height / 2 - cellPx);
+  ctx.font = `${Math.floor(cellPx)}px system-ui`;
+  ctx.fillText('R to retry - T for title', width / 2, height / 2 + cellPx);
+  ctx.textAlign = 'left';
+}
+
+/**
+ * WIN overlay: Bob reached a Localhost Lilypad.
+ */
+export function drawWinOverlay(ctx, cellPx, width, height) {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = COLORS.titleText;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `bold ${Math.floor(cellPx * 1.5)}px system-ui`;
+  ctx.fillText('LEVEL COMPLETE', width / 2, height / 2 - cellPx);
+  ctx.font = `${Math.floor(cellPx)}px system-ui`;
+  ctx.fillText('Enter for next level - T for title', width / 2, height / 2 + cellPx);
   ctx.textAlign = 'left';
 }
