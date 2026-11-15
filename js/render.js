@@ -1,0 +1,73 @@
+// Rendering: static grass grid (M1). Vehicles, Bob, and overlays arrive in later milestones.
+
+import { GRID_COLS, GRID_ROWS } from './config.js';
+
+const COLORS = {
+  grassA: '#3a7d32',
+  grassB: '#428739',
+  gridLine: 'rgba(0, 0, 0, 0.18)',
+  debugText: 'rgba(255, 255, 255, 0.55)',
+  titleText: '#e8e8e8',
+};
+
+/**
+ * Draw the static grass grid. `debug` draws row/column coordinates.
+ * Row 0 is the bottom row (drawn at the bottom of the canvas).
+ */
+export function drawGrid(ctx, cellPx, debug = true) {
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const y = (GRID_ROWS - 1 - row) * cellPx;
+    for (let col = 0; col < GRID_COLS; col++) {
+      ctx.fillStyle = (row + col) % 2 === 0 ? COLORS.grassA : COLORS.grassB;
+      ctx.fillRect(col * cellPx, y, cellPx, cellPx);
+    }
+  }
+
+  // Grid lines.
+  ctx.strokeStyle = COLORS.gridLine;
+  ctx.lineWidth = 1;
+  for (let c = 0; c <= GRID_COLS; c++) {
+    ctx.beginPath();
+    ctx.moveTo(c * cellPx + 0.5, 0);
+    ctx.lineTo(c * cellPx + 0.5, GRID_ROWS * cellPx);
+    ctx.stroke();
+  }
+  for (let r = 0; r <= GRID_ROWS; r++) {
+    ctx.beginPath();
+    ctx.moveTo(0, r * cellPx + 0.5);
+    ctx.lineTo(GRID_COLS * cellPx, r * cellPx + 0.5);
+    ctx.stroke();
+  }
+
+  if (debug) {
+    ctx.fillStyle = COLORS.debugText;
+    ctx.font = `${Math.max(8, Math.floor(cellPx * 0.3))}px monospace`;
+    ctx.textBaseline = 'top';
+    // Column numbers along the top.
+    for (let col = 0; col < GRID_COLS; col++) {
+      ctx.fillText(String(col), col * cellPx + 2, 2);
+    }
+    // Row numbers along the left (row 0 at the bottom).
+    for (let row = 0; row < GRID_ROWS; row++) {
+      const y = (GRID_ROWS - 1 - row) * cellPx;
+      ctx.fillText(String(row), 2, y + 2);
+    }
+  }
+}
+
+/**
+ * TITLE screen overlay: title text + "Start" prompt.
+ */
+export function drawTitleOverlay(ctx, cellPx, width, height) {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = COLORS.titleText;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `bold ${Math.floor(cellPx * 1.5)}px system-ui`;
+  ctx.fillText('UNBIASED BOB CHALLENGE', width / 2, height / 2 - cellPx * 2);
+  ctx.font = `${Math.floor(cellPx)}px system-ui`;
+  ctx.fillText('click or press Enter to start', width / 2, height / 2);
+  ctx.textAlign = 'left';
+}

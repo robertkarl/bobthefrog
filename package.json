@@ -1,0 +1,9 @@
+{
+  "name": "bobthefrog",
+  "private": true,
+  "description": "Unbiased Bob Challenge — a Frogger clone in vanilla JS + Canvas",
+  "type": "module",
+  "scripts": {
+    "test": "node test/run-tests.js"
+  }
+}
