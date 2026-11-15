@@ -2,12 +2,16 @@
 
 import { GRID_COLS, GRID_ROWS, BASE_CELL_PX, DT_CLAMP_S } from './config.js';
 import { STATE, EVENT, nextState } from './state.js';
-import { drawGrid, drawTitleOverlay } from './render.js';
+import { drawGrid, drawLayout, drawTitleOverlay } from './render.js';
+import { generateLayout } from './levelgen/layout.js';
 import { attachStartHandler } from './input.js';
 
 // --- state ---
 let gameState = STATE.TITLE;
 let completions = 0; // difficulty = completions (M4+)
+
+// M2: a generated layout is shown while PLAYING (no vehicles yet).
+let layout = generateLayout();
 
 // --- canvas setup ---
 const canvas = document.getElementById('game');
@@ -20,7 +24,10 @@ canvas.height = cellPx * GRID_ROWS;
 function startGame() {
   if (gameState !== STATE.TITLE) return;
   const next = nextState(gameState, EVENT.START);
-  if (next) gameState = next;
+  if (next) {
+    gameState = next;
+    layout = generateLayout(); // fresh layout each game
+  }
 }
 const detachStart = attachStartHandler(canvas, window, startGame);
 
@@ -44,7 +51,11 @@ function update(dt) {
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawGrid(ctx, cellPx, true);
+  if (gameState === STATE.TITLE) {
+    drawGrid(ctx, cellPx, true);
+  } else {
+    drawLayout(ctx, cellPx, layout);
+  }
   if (gameState === STATE.TITLE) {
     drawTitleOverlay(ctx, cellPx, canvas.width, canvas.height);
   }

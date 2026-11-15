@@ -1,14 +1,40 @@
-// Rendering: static grass grid (M1). Vehicles, Bob, and overlays arrive in later milestones.
+// Rendering: grass grid (M1) + generated level layout (M2).
+// Vehicles, Bob, and overlays arrive in later milestones.
 
 import { GRID_COLS, GRID_ROWS } from './config.js';
 
 const COLORS = {
   grassA: '#3a7d32',
   grassB: '#428739',
+  asphalt: '#3d3d42',
+  sidewalk: '#b8a88a',
+  water: '#3a6ea8',
+  lilypad: '#7fc46a',
+  localhostLilypad: '#ffd23f',
   gridLine: 'rgba(0, 0, 0, 0.18)',
   debugText: 'rgba(255, 255, 255, 0.55)',
   titleText: '#e8e8e8',
 };
+
+// Base-type -> fill color (grass keeps a two-tone checkerboard).
+function cellColor(base, row, col) {
+  switch (base) {
+    case 'grass':
+      return (row + col) % 2 === 0 ? COLORS.grassA : COLORS.grassB;
+    case 'asphalt':
+      return COLORS.asphalt;
+    case 'sidewalk':
+      return COLORS.sidewalk;
+    case 'water':
+      return COLORS.water;
+    case 'lilypad':
+      return COLORS.lilypad;
+    case 'localhost-lilypad':
+      return COLORS.localhostLilypad;
+    default:
+      return COLORS.grassA;
+  }
+}
 
 /**
  * Draw the static grass grid. `debug` draws row/column coordinates.
@@ -23,7 +49,11 @@ export function drawGrid(ctx, cellPx, debug = true) {
     }
   }
 
-  // Grid lines.
+  drawGridLines(ctx, cellPx);
+  if (debug) drawDebugLabels(ctx, cellPx);
+}
+
+function drawGridLines(ctx, cellPx) {
   ctx.strokeStyle = COLORS.gridLine;
   ctx.lineWidth = 1;
   for (let c = 0; c <= GRID_COLS; c++) {
@@ -38,21 +68,39 @@ export function drawGrid(ctx, cellPx, debug = true) {
     ctx.lineTo(GRID_COLS * cellPx, r * cellPx + 0.5);
     ctx.stroke();
   }
+}
 
-  if (debug) {
-    ctx.fillStyle = COLORS.debugText;
-    ctx.font = `${Math.max(8, Math.floor(cellPx * 0.3))}px monospace`;
-    ctx.textBaseline = 'top';
-    // Column numbers along the top.
+function drawDebugLabels(ctx, cellPx) {
+  ctx.fillStyle = COLORS.debugText;
+  ctx.font = `${Math.max(8, Math.floor(cellPx * 0.3))}px monospace`;
+  ctx.textBaseline = 'top';
+  // Column numbers along the top.
+  for (let col = 0; col < GRID_COLS; col++) {
+    ctx.fillText(String(col), col * cellPx + 2, 2);
+  }
+  // Row numbers along the left (row 0 at the bottom).
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const y = (GRID_ROWS - 1 - row) * cellPx;
+    ctx.fillText(String(row), 2, y + 2);
+  }
+}
+
+/**
+ * Draw a generated level layout (M2): one colored cell per base type,
+ * so a human can eyeball the band adjacency.
+ */
+export function drawLayout(ctx, cellPx, layout, debug = true) {
+  const { grid } = layout;
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const y = (GRID_ROWS - 1 - row) * cellPx;
     for (let col = 0; col < GRID_COLS; col++) {
-      ctx.fillText(String(col), col * cellPx + 2, 2);
-    }
-    // Row numbers along the left (row 0 at the bottom).
-    for (let row = 0; row < GRID_ROWS; row++) {
-      const y = (GRID_ROWS - 1 - row) * cellPx;
-      ctx.fillText(String(row), 2, y + 2);
+      ctx.fillStyle = cellColor(grid[row][col].base, row, col);
+      ctx.fillRect(col * cellPx, y, cellPx, cellPx);
     }
   }
+
+  drawGridLines(ctx, cellPx);
+  if (debug) drawDebugLabels(ctx, cellPx);
 }
 
 /**
