@@ -1,8 +1,10 @@
 // M2: vertical band layout generation + adjacency validation.
 //
 // Grid model (PLAN.md §2): grid[row][col] = { base, obstacle }.
-// Row 0 is the bottom row. In M2 only base cell types are used;
-// obstacles (bush/pylon) and lilypads arrive in M3.
+// Row 0 is the bottom row. generateLayout produces the base layout only;
+// M3 adds lilypads and obstacles (hazards.js), and validateLayout is
+// relaxed to accept them (bush on grass, pylon on sidewalk, lilypads in
+// river rows).
 
 import { GRID_COLS, GRID_ROWS } from '../config.js';
 
@@ -131,31 +133,42 @@ export function generateLayout() {
 }
 
 /**
- * Check all M2 adjacency constraints. Returns a list of violation
- * strings; empty means the layout is valid.
+ * Check all layout constraints: M2 adjacency + M3 cell/obstacle rules.
+ * Returns a list of violation strings; empty means the layout is valid.
+ *
+ * M3 relaxation: obstacles are allowed (bush on grass, pylon on
+ * sidewalk), and river rows may contain lilypad / localhost-lilypad
+ * cells.
  */
 export function validateLayout({ grid, lanes, rivers }) {
   const errors = [];
 
-  // 1. Every cell has exactly one base type (no obstacles in M2).
+  // 1. Every cell has a valid base type; obstacles are placed correctly.
   for (let r = 0; r < GRID_ROWS; r++) {
     for (let c = 0; c < GRID_COLS; c++) {
       const cell = grid[r] && grid[r][c];
       if (!cell || !BASE_TYPES.has(cell.base)) {
         errors.push(`(${r},${c}) has no valid base type`);
-      } else if (cell.obstacle !== null) {
-        errors.push(`(${r},${c}) has an obstacle in an M2 layout`);
+      } else if (cell.obstacle === 'bush' && cell.base !== CELL.GRASS) {
+        errors.push(`(${r},${c}) has a bush on non-grass`);
+      } else if (cell.obstacle === 'pylon' && cell.base !== CELL.SIDEWALK) {
+        errors.push(`(${r},${c}) has a pylon on non-sidewalk`);
+      } else if (cell.obstacle !== null && cell.obstacle !== 'bush' && cell.obstacle !== 'pylon') {
+        errors.push(`(${r},${c}) has an unknown obstacle`);
       }
     }
   }
 
-  // Row base type (rows are full-width and uniform by construction).
+  // Row base type (rows are full-width and uniform by construction,
+  // except river rows, which may mix water and lilypads).
   const rowBase = (r) => grid[r][0].base;
 
-  // 2. Row 0 is grass; top 2 rows are water.
-  if (rowBase(0) !== CELL.GRASS) errors.push('row 0 is not grass');
-  if (rowBase(GRID_ROWS - 2) !== CELL.WATER) errors.push('row ' + (GRID_ROWS - 2) + ' is not water');
-  if (rowBase(GRID_ROWS - 1) !== CELL.WATER) errors.push('row ' + (GRID_ROWS - 1) + ' is not water');
+  // 2. Row 0 is grass and hazard-free (Bob's safe start strip).
+  for (let c = 0; c < GRID_COLS; c++) {
+    const cell = grid[0][c];
+    if (cell.base !== CELL.GRASS) errors.push(`row 0 col ${c} is not grass`);
+    if (cell.obstacle !== null) errors.push(`row 0 col ${c} has an obstacle`);
+  }
 
   // 3. Lanes: exactly 2 rows tall, full width, with a direction.
   const laneRows = new Set();
@@ -168,14 +181,17 @@ export function validateLayout({ grid, lanes, rivers }) {
       errors.push('lane rows ' + JSON.stringify(lane.rows) + ' has no valid direction');
     }
     for (const r of lane.rows) {
-      if (rowBase(r) !== CELL.ASPHALT) errors.push('lane row ' + r + ' is not asphalt');
+      for (let c = 0; c < GRID_COLS; c++) {
+        if (grid[r][c].base !== CELL.ASPHALT) errors.push(`lane row ${r} col ${c} is not asphalt`);
+      }
       laneRows.add(r);
     }
   }
   // No stray asphalt outside declared lanes.
   for (let r = 0; r < GRID_ROWS; r++) {
-    if (rowBase(r) === CELL.ASPHALT && !laneRows.has(r)) {
-      errors.push('row ' + r + ' is asphalt but not a declared lane');
+    if (laneRows.has(r)) continue;
+    if (grid[r].some((cell) => cell.base === CELL.ASPHALT)) {
+      errors.push('row ' + r + ' has asphalt but is not a declared lane');
     }
   }
 
@@ -189,7 +205,8 @@ export function validateLayout({ grid, lanes, rivers }) {
     }
   }
 
-  // 5. Rivers: 2 rows tall, all water; no water outside declared rivers.
+  // 5. River rows contain only water / lilypad / localhost-lilypad;
+  //    no water outside declared rivers.
   const riverRows = new Set();
   for (const river of rivers) {
     if (!Array.isArray(river.rows) || river.rows.length !== 2) {
@@ -197,13 +214,19 @@ export function validateLayout({ grid, lanes, rivers }) {
       continue;
     }
     for (const r of river.rows) {
-      if (rowBase(r) !== CELL.WATER) errors.push('river row ' + r + ' is not water');
+      for (let c = 0; c < GRID_COLS; c++) {
+        const b = grid[r][c].base;
+        if (b !== CELL.WATER && b !== CELL.LILYPAD && b !== CELL.LOCALHOST_LILYPAD) {
+          errors.push(`river row ${r} col ${c} is ${b}, expected water or lilypad`);
+        }
+      }
       riverRows.add(r);
     }
   }
   for (let r = 0; r < GRID_ROWS; r++) {
-    if (rowBase(r) === CELL.WATER && !riverRows.has(r)) {
-      errors.push('row ' + r + ' is water but not a declared river');
+    if (riverRows.has(r)) continue;
+    if (grid[r].some((cell) => cell.base === CELL.WATER)) {
+      errors.push('row ' + r + ' has water but is not a declared river');
     }
   }
 
@@ -219,9 +242,13 @@ export function validateLayout({ grid, lanes, rivers }) {
     }
   }
 
-  // 7. Sidewalk rows border a lane on exactly one side and grass on the other.
+  // 7. Sidewalk rows are full-width and border a lane on exactly one
+  //    side and grass on the other.
   for (let r = 0; r < GRID_ROWS; r++) {
     if (rowBase(r) !== CELL.SIDEWALK) continue;
+    for (let c = 0; c < GRID_COLS; c++) {
+      if (grid[r][c].base !== CELL.SIDEWALK) errors.push(`sidewalk row ${r} col ${c} is not sidewalk`);
+    }
     const above = r + 1 < GRID_ROWS ? rowBase(r + 1) : null; // top edge
     const below = r - 1 >= 0 ? rowBase(r - 1) : null; // bottom edge
     const aboveLane = above === CELL.ASPHALT && laneRows.has(r + 1);
@@ -239,10 +266,13 @@ export function validateLayout({ grid, lanes, rivers }) {
 
   // 8. Everything else is grass.
   for (let r = 0; r < GRID_ROWS; r++) {
-    const b = rowBase(r);
-    const isFeature = laneRows.has(r) || riverRows.has(r) || b === CELL.SIDEWALK;
-    if (!isFeature && b !== CELL.GRASS) {
-      errors.push('row ' + r + ' is ' + b + ' but not a lane/river/sidewalk');
+    const isFeature = laneRows.has(r) || riverRows.has(r) || rowBase(r) === CELL.SIDEWALK;
+    if (!isFeature) {
+      for (let c = 0; c < GRID_COLS; c++) {
+        if (grid[r][c].base !== CELL.GRASS) {
+          errors.push(`row ${r} col ${c} is ${grid[r][c].base} but not a lane/river/sidewalk`);
+        }
+      }
     }
   }
 
