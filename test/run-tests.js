@@ -16,7 +16,9 @@
 //   M7 (audio) — after the first keypress unlocks the AudioContext:
 //   6. Each successful hop plays a short rising blip ('hop').
 //   7. Hopping into water plays a sinking sweep + splash ('drown') and
-//      Bob speaks a mild quip ("Damn.", "Crap.", ...) via TTS.
+//      Bob speaks a mild quip ("Damn.", "Crap.", ...) from the
+//      pre-generated bobthefrog WAV clip (falls back to TTS if a clip
+//      fails to load).
 //   8. Reaching a Localhost Lilypad plays a short jingle ('win').
 //   9. Pressing M mutes everything (no hop blips, no quips); pressing M
 //      again restores sound. Default is sound ON.
@@ -645,7 +647,7 @@ console.log('M4 carry-over: forced-fix fallback in generateLevel (stubbed hazard
 
 console.log('M7: SFX & TTS (pure logic):');
 
-import { sfx, quip, pickQuip, toggleMute, setMuted, isMuted, SFX, QUIPS, EVENT_SFX } from '../js/audio.js';
+import { sfx, quip, pickQuip, toggleMute, setMuted, isMuted, SFX, QUIPS, EVENT_SFX, QUIP_CLIPS, quipClip } from '../js/audio.js';
 import {
   LEVEL1_LINES,
   createDialog,
@@ -700,6 +702,34 @@ try {
   threw = true;
 }
 check('sfx/quip are safe no-ops under Node', threw, false);
+
+// M7.1: quip -> clip mapping (pure logic; clips are WAV files on disk).
+console.log('M7.1: quip clip mapping:');
+check('every quip has a clip file', QUIPS.every((q) => QUIP_CLIPS[q] !== undefined), true);
+check('clip map covers exactly the quip list', Object.keys(QUIP_CLIPS).length, QUIPS.length);
+check('quipClip("Damn.") -> quip-damn.wav', quipClip('Damn.'), 'assets/audio/quip-damn.wav');
+check('quipClip("Well, that hurt.") -> quip-well-that-hurt.wav', quipClip('Well, that hurt.'), 'assets/audio/quip-well-that-hurt.wav');
+check('quipClip("Crap.") -> quip-crap.wav', quipClip('Crap.'), 'assets/audio/quip-crap.wav');
+check('quipClip("Ouch.") -> quip-ouch.wav', quipClip('Ouch.'), 'assets/audio/quip-ouch.wav');
+check('quipClip("Blast it.") -> quip-blast-it.wav', quipClip('Blast it.'), 'assets/audio/quip-blast-it.wav');
+check('quipClip on unmapped text -> null', quipClip('Bogus!'), null);
+const quipAssetUrl = (rel) => new URL(rel, new URL('../', import.meta.url));
+let missingQuipClips = 0;
+for (const f of Object.values(QUIP_CLIPS)) {
+  if (!existsSync(quipAssetUrl(f))) missingQuipClips++;
+}
+check('all quip clip files exist on disk', missingQuipClips, 0);
+
+// Muted quip is a silent no-op (mute state respected).
+setMuted(true);
+let mutedQuipThrew = false;
+try {
+  quip();
+} catch {
+  mutedQuipThrew = true;
+}
+setMuted(false);
+check('muted quip is a safe no-op', mutedQuipThrew, false);
 
 // --- M8: sprite mapping (pure mapping in js/sprites.js; assets on disk) ---
 

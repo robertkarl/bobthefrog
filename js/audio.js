@@ -1,9 +1,11 @@
-// M7: procedural SFX (Web Audio) + TTS (Web Speech API).
+// M7: procedural SFX (Web Audio) + TTS.
 //
-// All sounds are synthesized in code — no audio files, no external services.
-// The pure-logic parts (mute state, event mapping, quip selection) are
-// importable and testable under Node; browser APIs are guarded so the
-// module loads (and no-ops) outside a browser.
+// SFX are synthesized in code (no audio files). Death quips are spoken
+// with pre-generated WAV clips in the cloned "bobthefrog" voice
+// (assets/audio/quip-*.wav); speechSynthesis is only the fallback.
+// The pure-logic parts (mute state, event mapping, quip selection,
+// quip->clip mapping) are importable and testable under Node; browser
+// APIs are guarded so the module loads (and no-ops) outside a browser.
 
 // SFX names.
 export const SFX = Object.freeze({
@@ -52,6 +54,21 @@ export function toggleMute() {
 // Random quip; `rng` is injectable for deterministic tests.
 export function pickQuip(rng = Math.random) {
   return QUIPS[Math.floor(rng() * QUIPS.length)];
+}
+
+// Quip text -> pre-generated WAV clip (bobthefrog voice, M7.1).
+// Every quip has a clip; unmapped text maps to null (fallback path).
+export const QUIP_CLIPS = Object.freeze({
+  'Damn.': 'assets/audio/quip-damn.wav',
+  'Well, that hurt.': 'assets/audio/quip-well-that-hurt.wav',
+  'Crap.': 'assets/audio/quip-crap.wav',
+  'Ouch.': 'assets/audio/quip-ouch.wav',
+  'Blast it.': 'assets/audio/quip-blast-it.wav',
+});
+
+// Pure mapping: quip text -> clip file (null when unmapped).
+export function quipClip(text) {
+  return QUIP_CLIPS[text] ?? null;
 }
 
 // --- Web Audio synthesis (browser-only; silent no-op elsewhere) ---
@@ -166,9 +183,51 @@ export function speak(text) {
   speechSynthesis.speak(u);
 }
 
+// --- Quip clip playback (browser-only; silent no-op elsewhere) ---
+
+const clipCache = new Map(); // url -> Promise<AudioBuffer>
+
+function loadClip(url) {
+  if (!clipCache.has(url)) {
+    clipCache.set(
+      url,
+      (async () => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const bytes = await res.arrayBuffer();
+        const c = audioCtx();
+        if (!c) throw new Error('no AudioContext');
+        return c.decodeAudioData(bytes);
+      })()
+    );
+  }
+  return clipCache.get(url);
+}
+
 /**
- * Bob's death quip: a mild, random swear/quip.
+ * Bob's death quip: a mild, random swear/quip. Played from the
+ * pre-generated bobthefrog WAV clip when available; falls back to
+ * speechSynthesis when the clip is missing/unloadable or Web Audio is
+ * unavailable. No-op when muted (or outside a browser).
  */
 export function quip() {
-  speak(pickQuip());
+  const text = pickQuip();
+  if (muted) return;
+  const clip = quipClip(text);
+  const c = audioCtx();
+  if (!clip || !c) {
+    speak(text);
+    return;
+  }
+  loadClip(clip)
+    .then((buf) => {
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      src.connect(c.destination);
+      src.start();
+    })
+    .catch(() => {
+      // Clip missing/unreadable: fall back to speechSynthesis.
+      speak(text);
+    });
 }
