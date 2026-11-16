@@ -2,6 +2,14 @@
 // Vehicles, Bob, and overlays arrive in later milestones.
 
 import { GRID_COLS, GRID_ROWS } from './config.js';
+import { getSprite } from './spriteLoader.js';
+import {
+  tileSprite,
+  obstacleSprite,
+  vehicleSprite,
+  playerSprite,
+  screenImage,
+} from './sprites.js';
 
 const COLORS = {
   grassA: '#3a7d32',
@@ -64,17 +72,48 @@ function drawObstacles(ctx, cellPx, grid) {
     const y = (GRID_ROWS - 1 - row) * cellPx;
     for (let col = 0; col < GRID_COLS; col++) {
       const cell = grid[row][col];
+      const img = getSprite(obstacleSprite(cell.obstacle));
       if (cell.obstacle === 'bush') {
-        ctx.fillStyle = COLORS.bush;
-        ctx.beginPath();
-        ctx.arc(col * cellPx + cellPx / 2, y + cellPx / 2, cellPx * 0.35, 0, Math.PI * 2);
-        ctx.fill();
+        if (img) {
+          ctx.drawImage(img, col * cellPx, y, cellPx, cellPx);
+        } else {
+          ctx.fillStyle = COLORS.bush;
+          ctx.beginPath();
+          ctx.arc(col * cellPx + cellPx / 2, y + cellPx / 2, cellPx * 0.35, 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (cell.obstacle === 'pylon') {
-        ctx.fillStyle = COLORS.pylon;
-        ctx.fillRect(col * cellPx + cellPx * 0.25, y + cellPx * 0.2, cellPx * 0.5, cellPx * 0.6);
+        if (img) {
+          ctx.drawImage(img, col * cellPx, y, cellPx, cellPx);
+        } else {
+          ctx.fillStyle = COLORS.pylon;
+          ctx.fillRect(col * cellPx + cellPx * 0.25, y + cellPx * 0.2, cellPx * 0.5, cellPx * 0.6);
+        }
       }
     }
   }
+}
+
+// Draw a loaded tile sprite, falling back to a flat colored rectangle when
+// the image has not loaded (asset missing / load failed).
+function drawCell(ctx, x, y, cellPx, spriteName, fallbackColor) {
+  const img = getSprite(spriteName);
+  if (img) {
+    ctx.drawImage(img, x, y, cellPx, cellPx);
+  } else {
+    ctx.fillStyle = fallbackColor;
+    ctx.fillRect(x, y, cellPx, cellPx);
+  }
+}
+
+// Draw an overlay screen image fitted inside the canvas: uniform scale
+// (no stretching), centered.
+function drawFittedScreen(ctx, img, width, height) {
+  const scale = Math.min(width / img.width, height / img.height);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  ctx.drawImage(img, (width - w) / 2, (height - h) / 2, w, h);
+  return { w, h };
 }
 
 function drawGridLines(ctx, cellPx) {
@@ -118,8 +157,14 @@ export function drawLayout(ctx, cellPx, layout, debug = true) {
   for (let row = 0; row < GRID_ROWS; row++) {
     const y = (GRID_ROWS - 1 - row) * cellPx;
     for (let col = 0; col < GRID_COLS; col++) {
-      ctx.fillStyle = cellColor(grid[row][col].base, row, col);
-      ctx.fillRect(col * cellPx, y, cellPx, cellPx);
+      drawCell(
+        ctx,
+        col * cellPx,
+        y,
+        cellPx,
+        tileSprite(grid[row][col].base),
+        cellColor(grid[row][col].base, row, col),
+      );
     }
   }
 
@@ -137,11 +182,19 @@ export function drawTraffic(ctx, cellPx, traffic) {
     for (const v of lane.vehicles) {
       const x = v.x * cellPx;
       const y = (GRID_ROWS - 1 - lane.rows[1]) * cellPx;
-      ctx.fillStyle = v.kind === 'truck' ? COLORS.truck : COLORS.car;
-      ctx.fillRect(x, y, v.width * cellPx, 2 * cellPx);
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x + 0.5, y + 0.5, v.width * cellPx - 1, 2 * cellPx - 1);
+      const w = v.width * cellPx;
+      const h = 2 * cellPx;
+      const img = getSprite(vehicleSprite(v.kind));
+      if (img) {
+        // Scale the sprite to the vehicle's footprint (cars/trucks are 2 rows tall).
+        ctx.drawImage(img, x, y, w, h);
+      } else {
+        ctx.fillStyle = v.kind === 'truck' ? COLORS.truck : COLORS.car;
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      }
     }
   }
 }
@@ -152,16 +205,34 @@ export function drawTraffic(ctx, cellPx, traffic) {
 export function drawPlayer(ctx, cellPx, player) {
   const x = player.col * cellPx;
   const y = (GRID_ROWS - 1 - player.row) * cellPx;
-  ctx.fillStyle = COLORS.player;
-  ctx.beginPath();
-  ctx.arc(x + cellPx / 2, y + cellPx / 2, cellPx * 0.38, 0, Math.PI * 2);
-  ctx.fill();
+  const img = getSprite(playerSprite());
+  if (img) {
+    ctx.drawImage(img, x, y, cellPx, cellPx);
+  } else {
+    ctx.fillStyle = COLORS.player;
+    ctx.beginPath();
+    ctx.arc(x + cellPx / 2, y + cellPx / 2, cellPx * 0.38, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 /**
  * TITLE screen overlay: title text + "Start" prompt.
  */
 export function drawTitleOverlay(ctx, cellPx, width, height) {
+  const img = getSprite(screenImage('TITLE'));
+  if (img) {
+    // Generated title screen: fitted (no stretch), centered on the canvas.
+    drawFittedScreen(ctx, img, width, height);
+    ctx.fillStyle = COLORS.titleText;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${Math.floor(cellPx)}px system-ui`;
+    ctx.fillText('click or press Enter to start', width / 2, height - cellPx * 1.25);
+    ctx.textAlign = 'left';
+    return;
+  }
+
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   ctx.fillRect(0, 0, width, height);
 
@@ -179,6 +250,19 @@ export function drawTitleOverlay(ctx, cellPx, width, height) {
  * GAME OVER overlay: Bob drowned or was squished.
  */
 export function drawGameOverOverlay(ctx, cellPx, width, height) {
+  const img = getSprite(screenImage('GAME_OVER'));
+  if (img) {
+    // Generated game-over screen: fitted (no stretch), centered over the level.
+    drawFittedScreen(ctx, img, width, height);
+    ctx.fillStyle = COLORS.titleText;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${Math.floor(cellPx)}px system-ui`;
+    ctx.fillText('R to retry - T for title', width / 2, height - cellPx * 1.25);
+    ctx.textAlign = 'left';
+    return;
+  }
+
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   ctx.fillRect(0, 0, width, height);
 

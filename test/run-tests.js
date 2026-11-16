@@ -9,6 +9,10 @@
 //   4. Click the canvas or press Enter -> overlay disappears, grass grid
 //      remains (state is now PLAYING).
 //   5. The animation loop runs (no console errors; frame keeps ticking).
+//   M8 (sprites) — visual: sprites replace the colored rectangles once loaded:
+//      tiles, bushes/pylons, Bob, cars/trucks; title & game-over screens use
+//      the generated 512px images (fitted, no stretch). Rectangles remain as
+//      the fallback if any image fails to load.
 //   M7 (audio) — after the first keypress unlocks the AudioContext:
 //   6. Each successful hop plays a short rising blip ('hop').
 //   7. Hopping into water plays a sinking sweep + splash ('drown') and
@@ -682,5 +686,66 @@ try {
   threw = true;
 }
 check('sfx/quip are safe no-ops under Node', threw, false);
+
+// --- M8: sprite mapping (pure mapping in js/sprites.js; assets on disk) ---
+
+import {
+  TILE_SPRITES,
+  OBSTACLE_SPRITES,
+  VEHICLE_SPRITES,
+  PLAYER_SPRITE,
+  SCREEN_IMAGES,
+  tileSprite,
+  obstacleSprite,
+  vehicleSprite,
+  playerSprite,
+  screenImage,
+  spriteFile,
+  screenFile,
+} from '../js/sprites.js';
+import { existsSync } from 'node:fs';
+
+const assetUrl = (rel) => new URL(rel, new URL('../', import.meta.url));
+
+console.log('M8: sprite mapping:');
+// Tile sprites cover every base type the layout can produce.
+check('tile: asphalt', tileSprite('asphalt'), 'asphalt.png');
+check('tile: grass', tileSprite('grass'), 'grass.png');
+check('tile: sidewalk', tileSprite('sidewalk'), 'sidewalk.png');
+check('tile: water', tileSprite('water'), 'water.png');
+check('tile: lilypad', tileSprite('lilypad'), 'lilypad.png');
+check('tile: localhost-lilypad', tileSprite('localhost-lilypad'), 'localhost_lilypad.png');
+check('tile: unknown base -> null', tileSprite('bogus'), null);
+
+check('obstacle: bush', obstacleSprite('bush'), 'bush.png');
+check('obstacle: pylon', obstacleSprite('pylon'), 'pylon.png');
+check('obstacle: unknown -> null', obstacleSprite('bogus'), null);
+
+check('vehicle: car', vehicleSprite('car'), 'car.png');
+check('vehicle: truck', vehicleSprite('truck'), 'truck.png');
+check('vehicle: unknown -> null', vehicleSprite('bogus'), null);
+
+check('player sprite is bob.png', playerSprite(), 'bob.png');
+check('screen: TITLE', screenImage('TITLE'), SCREEN_IMAGES.title);
+check('screen: GAME_OVER', screenImage('GAME_OVER'), SCREEN_IMAGES.gameover);
+check('screen: other states -> null', screenImage('PLAYING'), null);
+check('screens use the 512 variants', SCREEN_IMAGES.title.endsWith('_512.png') && SCREEN_IMAGES.gameover.endsWith('_512.png'), true);
+
+// Every mapped file must exist on disk (paths resolve relative to the repo).
+const mapped = [
+  ...Object.values(TILE_SPRITES),
+  ...Object.values(OBSTACLE_SPRITES),
+  ...Object.values(VEHICLE_SPRITES),
+  PLAYER_SPRITE,
+  ...Object.values(SCREEN_IMAGES),
+];
+let missing = 0;
+for (const f of mapped) {
+  const isScreen = f === SCREEN_IMAGES.title || f === SCREEN_IMAGES.gameover;
+  const url = isScreen ? screenFile(f) : spriteFile(f);
+  if (!existsSync(assetUrl(url))) missing++;
+}
+check('all mapped sprite/screen files exist on disk', missing, 0);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

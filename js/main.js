@@ -16,6 +16,7 @@ import { attachStartHandler, attachHopHandler } from './input.js';
 import { createPlayer, hop } from './player.js';
 import { createTraffic, updateTraffic, bobInDanger } from './vehicles.js';
 import { sfx, quip, toggleMute } from './audio.js';
+import { loadSprites } from './spriteLoader.js';
 
 // --- state ---
 let gameState = STATE.TITLE;
@@ -67,6 +68,10 @@ const ctx = canvas.getContext('2d');
 const cellPx = BASE_CELL_PX;
 canvas.width = cellPx * GRID_COLS;
 canvas.height = cellPx * GRID_ROWS;
+
+// M8: load sprites/screens up front; render falls back to colored
+// rectangles until (or unless) each image is ready.
+loadSprites();
 
 // --- input ---
 const detachStart = attachStartHandler(canvas, window, startGame);
