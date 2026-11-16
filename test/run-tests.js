@@ -1,7 +1,7 @@
-// M1/M2/M3 tests: pure-logic checks runnable under Node (no browser needed).
+// M1-M7 tests: pure-logic checks runnable under Node (no browser needed).
 // Run: node test/run-tests.js   (or: npm test)
 //
-// Manual verification checklist (visual parts — do in a browser):
+// Manual verification checklist (visual/audio parts — do in a browser):
 //   1. Open index.html; an 18x26 grid of green cells is visible.
 //   2. Debug overlay shows column numbers 0..17 along the top and
 //      row numbers 0..25 along the left (row 0 at the bottom).
@@ -9,6 +9,15 @@
 //   4. Click the canvas or press Enter -> overlay disappears, grass grid
 //      remains (state is now PLAYING).
 //   5. The animation loop runs (no console errors; frame keeps ticking).
+//   M7 (audio) — after the first keypress unlocks the AudioContext:
+//   6. Each successful hop plays a short rising blip ('hop').
+//   7. Hopping into water plays a sinking sweep + splash ('drown') and
+//      Bob speaks a mild quip ("Damn.", "Crap.", ...) via TTS.
+//   8. Reaching a Localhost Lilypad plays a short jingle ('win').
+//   9. Pressing M mutes everything (no hop blips, no quips); pressing M
+//      again restores sound. Default is sound ON.
+//   10. In a browser without speechSynthesis (or muted), death is silent
+//      and nothing throws in the console.
 
 import { STATE, EVENT, nextState } from '../js/state.js';
 import {
@@ -621,6 +630,57 @@ console.log('M4 carry-over: forced-fix fallback in generateLevel (stubbed hazard
   check('fallback level has >= 3 goals', level.goals.length >= 3, true);
   check('BFS reaches every goal in the fallback level', validateLevel(level).reachable.length, level.goals.length);
 }
+// --- M7: SFX & TTS (pure-logic parts; browser audio is manual, see above) ---
 
+console.log('M7: SFX & TTS (pure logic):');
+
+import { sfx, quip, pickQuip, toggleMute, setMuted, isMuted, SFX, QUIPS, EVENT_SFX } from '../js/audio.js';
+
+// Mute state: default on (not muted), toggle flips, setMuted sticks.
+check('audio starts unmuted', isMuted(), false);
+check('toggleMute mutes', toggleMute(), true);
+check('isMuted after toggle', isMuted(), true);
+check('toggleMute unmutes', toggleMute(), false);
+check('setMuted(true) mutes', setMuted(true), undefined);
+check('isMuted after setMuted(true)', isMuted(), true);
+check('setMuted(false) unmutes', setMuted(false), undefined);
+check('isMuted after setMuted(false)', isMuted(), false);
+
+// Event -> SFX mapping is complete and distinct.
+check('mapping covers hop', EVENT_SFX.hop, SFX.HOP);
+check('mapping covers drown', EVENT_SFX.drown, SFX.DROWN);
+check('mapping covers crash', EVENT_SFX.crash, SFX.CRASH);
+check('mapping covers win', EVENT_SFX.win, SFX.WIN);
+check('mapping covers levelup', EVENT_SFX.levelup, SFX.TICK);
+const distinct = new Set(Object.values(EVENT_SFX));
+check('all mapped SFX are distinct', distinct.size, 5);
+
+// Quip selection: always a member of the list; deterministic with a fixed rng.
+check('quip list is non-empty', QUIPS.length > 0, true);
+check('pickQuip(rng=0) is first quip', pickQuip(() => 0), QUIPS[0]);
+check('pickQuip(rng=0.99) is last quip', pickQuip(() => 0.99), QUIPS[QUIPS.length - 1]);
+const rng = () => Math.random();
+for (let i = 0; i < 50; i++) {
+  if (!QUIPS.includes(pickQuip(rng))) {
+    check('pickQuip always from list', true, false);
+    break;
+  }
+}
+check('pickQuip always from list', true, true);
+
+// sfx()/quip() are safe no-ops under Node (no AudioContext/speechSynthesis).
+let threw = false;
+try {
+  sfx('hop');
+  sfx('drown');
+  sfx('crash');
+  sfx('win');
+  sfx('tick');
+  sfx('nonsense');
+  quip();
+} catch {
+  threw = true;
+}
+check('sfx/quip are safe no-ops under Node', threw, false);
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -15,6 +15,7 @@ import { generateLevel } from './levelgen/index.js';
 import { attachStartHandler, attachHopHandler } from './input.js';
 import { createPlayer, hop } from './player.js';
 import { createTraffic, updateTraffic, bobInDanger } from './vehicles.js';
+import { sfx, quip, toggleMute } from './audio.js';
 
 // --- state ---
 let gameState = STATE.TITLE;
@@ -76,16 +77,29 @@ const detachHop = attachHopHandler(window, (dir) => {
   if (gameState !== STATE.PLAYING) return;
   const result = hop(player, dir, level.grid);
   if (result.result === 'drowned') {
+    sfx('drown');
+    quip(); // Bob swears mildly (M7 TTS)
     gameState = nextState(gameState, EVENT.DIE);
   } else if (result.result === 'win') {
+    sfx('win');
     completions++; // difficulty persists: speed = min(4 + completions, 8)
     gameState = nextState(gameState, EVENT.WIN);
   } else if (result.moved && bobInDanger(traffic, player)) {
     // Bob hopped into a vehicle: squished (collision is bidirectional).
+    sfx('crash');
+    quip();
     gameState = nextState(gameState, EVENT.DIE);
+  } else if (result.result === 'moved') {
+    sfx('hop');
   }
 });
 void detachHop;
+
+// Mute toggle: M key (M7 audio).
+const detachMute = window.addEventListener('keydown', (e) => {
+  if (e.key === 'm' || e.key === 'M') toggleMute();
+});
+void detachMute;
 
 // State-specific keys: R/T on GAME_OVER, Enter/T on WIN.
 const detachStateKeys = window.addEventListener('keydown', (e) => {
@@ -118,6 +132,9 @@ function update(dt) {
   // Collision is bidirectional: a vehicle driving into Bob kills him too
   // (checked every frame, not only on Bob's hop).
   if (bobInDanger(traffic, player)) {
+    // Vehicle drove into Bob: squished.
+    sfx('crash');
+    quip();
     gameState = nextState(gameState, EVENT.DIE);
   }
 }
