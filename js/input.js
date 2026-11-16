@@ -14,7 +14,7 @@ const KEY_DIRS = {
 export function attachStartHandler(canvas, windowRef, onStart) {
   const onClick = () => onStart();
   const onKey = (e) => {
-    if (e.key === 'Enter') onStart();
+    if (e.key === 'Enter') onStart(e); // pass the event (M5.6 dialog guard)
   };
   canvas.addEventListener('click', onClick);
   windowRef.addEventListener('keydown', onKey);
