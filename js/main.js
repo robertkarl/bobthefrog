@@ -15,7 +15,9 @@ import { generateLevel } from './levelgen/index.js';
 import { attachStartHandler, attachHopHandler } from './input.js';
 import { createPlayer, hop } from './player.js';
 import { createTraffic, updateTraffic, bobInDanger } from './vehicles.js';
-import { sfx, quip, toggleMute } from './audio.js';
+import { sfx, quip, toggleMute, isMuted } from './audio.js';
+import { LEVEL1_LINES, createDialog, playLineAudio, stopLineAudio } from './dialog.js';
+import { drawDialog } from './dialog-draw.js';
 
 // --- state ---
 let gameState = STATE.TITLE;
@@ -23,6 +25,13 @@ let completions = 0; // difficulty = completions; only wins increment it
 let level = null;
 let player = null;
 let traffic = null;
+
+// M5.6: pre-roll conversation (Jensen) before the level begins.
+let dialog = null;
+let currentLine = null;
+// The event that opened the dialog, so that same keydown does not also
+// advance the first line (the handlers fire in one dispatch).
+let dialogStartEvent = null;
 
 // Fresh level at the current difficulty + a new Bob on the bottom row.
 function newGame() {
@@ -61,6 +70,29 @@ function toTitle() {
   traffic = null;
 }
 
+// M5.6: start the pre-roll dialog. Lines play with TTS and advance on
+// keypress or when each line finishes; finishing starts the level.
+function startDialog(openingEvent) {
+  if (dialog) return;
+  dialogStartEvent = openingEvent;
+  dialog = createDialog(LEVEL1_LINES, {
+    onLine: (line) => {
+      currentLine = line;
+      if (isMuted()) return; // no audio; the player advances on key
+      playLineAudio(line).then(() => {
+        if (currentLine === line && dialog.phase === 'active') dialog.advance();
+      });
+    },
+    onDone: () => {
+      stopLineAudio();
+      dialog = null;
+      currentLine = null;
+      startGame();
+    },
+  });
+  dialog.begin();
+}
+
 // --- canvas ---
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -69,8 +101,30 @@ canvas.width = cellPx * GRID_COLS;
 canvas.height = cellPx * GRID_ROWS;
 
 // --- input ---
-const detachStart = attachStartHandler(canvas, window, startGame);
+// M5.6: on the title screen, Enter/click starts the pre-roll dialog
+// (which then starts the level when finished).
+const detachStart = attachStartHandler(canvas, window, (e) => {
+  if (gameState !== STATE.TITLE) return;
+  startDialog(e);
+});
 void detachStart;
+
+// M5.6: dialog keys — Enter/space advances a line, Escape skips it.
+const detachDialogKeys = window.addEventListener('keydown', (e) => {
+  if (!dialog || dialog.phase !== 'active') return;
+  if (e === dialogStartEvent) {
+    dialogStartEvent = null; // the opening Enter doesn't advance
+    return;
+  }
+  if (e.key === 'Enter' || e.key === ' ') {
+    stopLineAudio();
+    dialog.advance();
+  } else if (e.key === 'Escape') {
+    stopLineAudio();
+    dialog.skip();
+  }
+});
+void detachDialogKeys;
 
 // Arrow keys hop Bob one cell (PLAYING only); drown/win end the game.
 const detachHop = attachHopHandler(window, (dir) => {
@@ -143,7 +197,12 @@ function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (gameState === STATE.TITLE) {
     drawGrid(ctx, cellPx, true);
-    drawTitleOverlay(ctx, cellPx, canvas.width, canvas.height);
+    // M5.6: pre-roll dialog overlay, else the plain title overlay.
+    if (dialog && dialog.phase === 'active') {
+      drawDialog(ctx, cellPx, canvas.width, canvas.height, dialog.current);
+    } else {
+      drawTitleOverlay(ctx, cellPx, canvas.width, canvas.height);
+    }
     return;
   }
   drawLayout(ctx, cellPx, level);

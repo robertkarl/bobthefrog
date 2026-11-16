@@ -1,0 +1,26 @@
+# intro
+conversation appears with Jensen, full screen.
+
+Jensen appears, smiling. pixel art style like the Stardew Valley assets. lo-res.
+
+Use TTS. For the voice lines.
+
+# level 1
+
+This dialog plays before the level begins.
+
+See stardew-conversation.jpg for overall style: but it's pretty simple.
+
+headshot / pixelated view of the character. next to large text in a box.
+
+Smiling Jensen:
+"Total revenue for the quarter was eighty billion dollars. The large shareholders expect more though."
+
+Frowning / serious Jensen:
+"Help me crank those numbers up. Let's smuggle some more GPUs to China. Nobody will suspect a frog loading the plane."
+
+# level 2
+
+Smiling Jensen:
+
+Frowning / serious Jensen:

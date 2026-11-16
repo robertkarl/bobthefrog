@@ -18,6 +18,13 @@
 //      again restores sound. Default is sound ON.
 //   10. In a browser without speechSynthesis (or muted), death is silent
 //      and nothing throws in the console.
+//   M5.6 (pre-roll conversation) — after the first keypress unlocks audio:
+//   11. Title screen: Enter/click opens the pre-roll dialog (Jensen box
+//       with pixel headshot + large text, Stardew-style).
+//   12. Line 1 plays with the cloned Jensen voice (WAV clip); Enter/space
+//       advances a line, and each line also auto-advances when it finishes.
+//   13. Line 2 (serious Jensen) plays; finishing it starts the level.
+//   14. Escape skips the whole dialog and starts the level immediately.
 
 import { STATE, EVENT, nextState } from '../js/state.js';
 import {
@@ -635,6 +642,13 @@ console.log('M4 carry-over: forced-fix fallback in generateLevel (stubbed hazard
 console.log('M7: SFX & TTS (pure logic):');
 
 import { sfx, quip, pickQuip, toggleMute, setMuted, isMuted, SFX, QUIPS, EVENT_SFX } from '../js/audio.js';
+import {
+  LEVEL1_LINES,
+  createDialog,
+  playLineAudio,
+  stopLineAudio,
+} from '../js/dialog.js';
+import { wrapText } from '../js/dialog-draw.js';
 
 // Mute state: default on (not muted), toggle flips, setMuted sticks.
 check('audio starts unmuted', isMuted(), false);
@@ -682,5 +696,78 @@ try {
   threw = true;
 }
 check('sfx/quip are safe no-ops under Node', threw, false);
+// --- M5.6: pre-roll conversation (dialog state machine) ---
+
+console.log('M5.6: pre-roll dialog state machine:');
+
+// Level-1 dialog content (from assets/dialogs/level1.txt).
+check('level 1 has 2 lines', LEVEL1_LINES.length, 2);
+check('line 1 speaker is Jensen', LEVEL1_LINES[0].speaker, 'Jensen');
+check('line 1 has an audio clip', typeof LEVEL1_LINES[0].audio, 'string');
+check('line 2 speaker is Jensen', LEVEL1_LINES[1].speaker, 'Jensen');
+check('line 2 has an audio clip', typeof LEVEL1_LINES[1].audio, 'string');
+
+// Fresh dialog: idle, no current line.
+const d = createDialog(LEVEL1_LINES);
+check('dialog starts idle', d.phase, 'idle');
+check('no current line before begin', d.current, null);
+check('advance before begin is rejected', d.advance(), false);
+
+// begin -> line 1
+const onLines = [];
+const onDones = [];
+const d2 = createDialog(LEVEL1_LINES, {
+  onLine: (l) => onLines.push(l),
+  onDone: () => onDones.push(1),
+});
+check('begin returns true', d2.begin(), true);
+check('second begin is rejected', d2.begin(), false);
+check('phase active after begin', d2.phase, 'active');
+check('index 0 after begin', d2.index, 0);
+check('current is line 1', d2.current, LEVEL1_LINES[0]);
+check('onLine fired with line 1', onLines.length, 1);
+
+// advance -> line 2
+check('advance to line 2', d2.advance(), true);
+check('index 1 after advance', d2.index, 1);
+check('current is line 2', d2.current, LEVEL1_LINES[1]);
+check('onLine fired for each line', onLines.length, 2);
+
+// advance past the last line -> done
+check('advance past last line', d2.advance(), true);
+check('phase done after last line', d2.phase, 'done');
+check('onDone fired once', onDones.length, 1);
+check('advance after done is rejected', d2.advance(), false);
+check('skip after done is rejected', d2.skip(), false);
+
+// skip from an active dialog jumps straight to done
+const d3 = createDialog(LEVEL1_LINES, { onDone: () => onDones.push(1) });
+d3.begin();
+check('skip returns true', d3.skip(), true);
+check('skip fired onDone', onDones.length, 2);
+check('skip twice is rejected', d3.skip(), false);
+
+// empty dialog: begin + advance still terminates cleanly
+const d4 = createDialog([]);
+check('empty dialog begins', d4.begin(), true);
+check('empty dialog has no current line', d4.current, null);
+check('empty dialog advances to done', d4.advance(), true);
+check('empty dialog is done', d4.phase, 'done');
+
+// Text wrapping is deterministic with a fake measureText.
+const fakeCtx = { measureText: (s) => ({ width: s.length * 10 }) };
+const wrapped = wrapText(fakeCtx, 'aa bb cc dd', 35);
+check('wrapText wraps long lines', wrapped.join('|'), 'aa|bb|cc|dd');
+
+// Audio helpers are safe no-ops under Node (no AudioContext/speechSynthesis).
+let audioThrew = false;
+try {
+  await playLineAudio(LEVEL1_LINES[0]); // resolves immediately under Node
+  stopLineAudio();
+} catch {
+  audioThrew = true;
+}
+check('playLineAudio/stopLineAudio are safe under Node', audioThrew, false);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
