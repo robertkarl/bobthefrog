@@ -23,6 +23,16 @@ import { generateLayout, validateLayout } from '../js/levelgen/layout.js';
 import { generateLevel } from '../js/levelgen/index.js';
 import { validateLevel } from '../js/levelgen/validate.js';
 import { createPlayer, hop } from '../js/player.js';
+import {
+  createTraffic,
+  updateTraffic,
+  bobInDanger,
+  vehicleOverlapsCell,
+  speedFor,
+  SPAWN_MIN_S,
+  CAR_WIDTH,
+  TRUCK_WIDTH,
+} from '../js/vehicles.js';
 
 let passed = 0;
 let failed = 0;
@@ -467,6 +477,149 @@ console.log('M3 carry-over: forced-fix fallback (strip obstacles):');
     for (let c = 0; c < GRID_COLS; c++) m.grid[rr][c].obstacle = null;
   }
   check('stripping all obstacles makes the level validate', validateLevel(m).ok, true);
+}
+
+// --- M5: traffic, vehicles, collision ---
+
+console.log('M5: collision (interval overlap, not floor-based):');
+
+// The known off-by-one (REVIEW.md): a vehicle at x=3.5 width 2 spans
+// [3.5, 5.5), i.e. columns 3, 4, 5. Bob at c=5 (the trailing column)
+// MUST collide. A floor-based range c ∈ [floor(x), floor(x)+width-1] =
+// [3, 4] misses it.
+const fracV = { lane: 0, x: 3.5, width: 2, kind: 'car' };
+check('fractional x: Bob at trailing column collides', vehicleOverlapsCell(fracV, 5), true);
+// The floor-based method (documented bug — must NOT be used):
+const floorBased = (vv, c) => c >= Math.floor(vv.x) && c <= Math.floor(vv.x) + vv.width - 1;
+check('floor-based range misses the trailing column (the bug)', floorBased(fracV, 5), false);
+check('floor-based range misses a truck trailing column (c=7)', floorBased({ x: 3.5, width: 4 }, 7), false);
+check('interval method catches the truck trailing column', vehicleOverlapsCell({ lane: 0, x: 3.5, width: 4, kind: 'truck' }, 7), true);
+
+// Leading edge and clear edges.
+check('leading column collides (c=3)', vehicleOverlapsCell(fracV, 3), true);
+check('just before the leading edge is clear (c=2)', vehicleOverlapsCell(fracV, 2), false);
+check('just past the trailing edge is clear (c=6)', vehicleOverlapsCell(fracV, 6), false);
+
+// Integer x still works (both edges inclusive via interval overlap).
+const intV = { lane: 0, x: 3, width: 2, kind: 'car' };
+check('integer x: c=3 collides', vehicleOverlapsCell(intV, 3), true);
+check('integer x: c=4 collides', vehicleOverlapsCell(intV, 4), true);
+check('integer x: c=5 clear', vehicleOverlapsCell(intV, 5), false);
+
+console.log('M5: bobInDanger (lane rows + interval overlap):');
+{
+  const lanes = [
+    { rows: [5, 6], dir: 'left' },
+    { rows: [9, 10], dir: 'right' },
+  ];
+  const traffic = createTraffic(lanes, 4, GRID_COLS, () => 0.5);
+  traffic.lanes[0].vehicles.push({ lane: 0, x: 5, width: 2, kind: 'car' });
+  check('Bob in lane row + inside footprint dies', bobInDanger(traffic, { row: 5, col: 6 }), true);
+  check('Bob in lane row + leading edge dies', bobInDanger(traffic, { row: 5, col: 5 }), true);
+  check('Bob in the lane\'s other row dies (full lane height)', bobInDanger(traffic, { row: 6, col: 6 }), true);
+  check('Bob just past the trailing edge survives', bobInDanger(traffic, { row: 5, col: 7 }), false);
+  check('Bob on a non-lane row survives', bobInDanger(traffic, { row: 7, col: 6 }), false);
+  check('Bob in the other lane survives', bobInDanger(traffic, { row: 9, col: 6 }), false);
+
+  // Fractional trailing edge: vehicle [5.5, 7.5) hits Bob at col 7.
+  traffic.lanes[0].vehicles.push({ lane: 0, x: 5.5, width: 2, kind: 'car' });
+  check('fractional trailing edge: Bob at col 7 dies', bobInDanger(traffic, { row: 5, col: 7 }), true);
+}
+
+console.log('M5: speed ramp (base 4, +1 per win, cap 8):');
+check('speedFor(0) = 4', speedFor(0), 4);
+check('speedFor(1) = 5', speedFor(1), 5);
+check('speedFor(3) = 7', speedFor(3), 7);
+check('speedFor(4) = 8 (cap)', speedFor(4), 8);
+check('speedFor(10) = 8 (cap)', speedFor(10), 8);
+
+console.log('M5: simulated traffic (deterministic, 30 s):');
+{
+  // Deterministic RNG so the run is reproducible.
+  function makeDeterministicRand(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 110351552 + 12345) % 2147483648;
+      return s / 2147483648;
+    };
+  }
+
+  const lanes = [
+    { rows: [4, 5], dir: 'left' },
+    { rows: [8, 9], dir: 'right' },
+  ];
+  const traffic = createTraffic(lanes, 4, GRID_COLS, makeDeterministicRand(20250607));
+
+  const spawnTimes = new Map();
+  for (const lane of traffic.lanes) spawnTimes.set(lane.index, []);
+
+  let overlapViolations = 0;
+  let widthViolations = 0;
+  let boundsViolations = 0;
+  let minSpawns = Infinity;
+
+  const SIM_STEPS = 300; // 30 s at dt = 0.1
+  for (let step = 1; step <= SIM_STEPS; step++) {
+    const events = updateTraffic(traffic, 0.1);
+    const t = step * 0.1;
+    for (const e of events) spawnTimes.get(e.lane).push(t);
+
+    for (const lane of traffic.lanes) {
+      const vs = lane.vehicles;
+      // No two vehicles in a lane may overlap.
+      for (let i = 0; i < vs.length; i++) {
+        for (let j = i + 1; j < vs.length; j++) {
+          const a = vs[i], b = vs[j];
+          if (a.x < b.x + b.width && b.x < a.x + a.width) overlapViolations++;
+        }
+      }
+      for (const v of vs) {
+        if (v.width !== CAR_WIDTH && v.width !== TRUCK_WIDTH) widthViolations++;
+        // Vehicles stay within the plausible range (fully off-screen ones
+        // are removed the same step).
+        if (lane.dir === 'left' && (v.x > GRID_COLS || v.x + v.width < 0)) boundsViolations++;
+        if (lane.dir === 'right' && (v.x >= GRID_COLS || v.x < -v.width)) boundsViolations++;
+      }
+    }
+  }
+
+  let intervalViolations = 0;
+  for (const lane of traffic.lanes) {
+    const times = spawnTimes.get(lane.index);
+    minSpawns = Math.min(minSpawns, times.length);
+    for (let i = 1; i < times.length; i++) {
+      if (times[i] - times[i - 1] < SPAWN_MIN_S - 1e-9) intervalViolations++;
+    }
+  }
+
+  check('no two spawns in a lane closer than 2 s', intervalViolations, 0);
+  check('every lane spawned at least 2 vehicles in 30 s', minSpawns >= 2, true);
+  check('no overlapping vehicles in a lane over the run', overlapViolations, 0);
+  check('all vehicle widths are 2 (car) or 4 (truck)', widthViolations, 0);
+  check('vehicles stay in range and despawn cleanly', boundsViolations, 0);
+
+  const kinds = new Set();
+  for (const lane of traffic.lanes) for (const v of lane.vehicles) kinds.add(v.kind);
+  check('both cars and trucks appear over the run', kinds.has('car') && kinds.has('truck'), true);
+}
+
+// M4 carry-over: drive the REAL forced-fix fallback path in generateLevel.
+// A stubbed hazard placer walls the grass row above the goal river, so every
+// attempt fails BFS validation; the fallback (strip all obstacles) must still
+// return a valid, solvable level.
+console.log('M4 carry-over: forced-fix fallback in generateLevel (stubbed hazards):');
+{
+  let stubCalls = 0;
+  const wallingHazards = (layout) => {
+    stubCalls++;
+    const r = GRID_ROWS - 3; // the grass row above the goal river
+    for (let c = 0; c < GRID_COLS; c++) layout.grid[r][c].obstacle = 'bush';
+  };
+  const level = generateLevel(0, { placeHazards: wallingHazards });
+  check('stubbed hazards force all 5 retries (fallback path taken)', stubCalls, 5);
+  check('forced-fix fallback returns a validating level', validateLevel(level).ok, true);
+  check('fallback level has >= 3 goals', level.goals.length >= 3, true);
+  check('BFS reaches every goal in the fallback level', validateLevel(level).reachable.length, level.goals.length);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

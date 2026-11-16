@@ -6,6 +6,7 @@ import {
   drawGrid,
   drawLayout,
   drawPlayer,
+  drawTraffic,
   drawTitleOverlay,
   drawGameOverOverlay,
   drawWinOverlay,
@@ -13,17 +14,20 @@ import {
 import { generateLevel } from './levelgen/index.js';
 import { attachStartHandler, attachHopHandler } from './input.js';
 import { createPlayer, hop } from './player.js';
+import { createTraffic, updateTraffic, bobInDanger } from './vehicles.js';
 
 // --- state ---
 let gameState = STATE.TITLE;
 let completions = 0; // difficulty = completions; only wins increment it
 let level = null;
 let player = null;
+let traffic = null;
 
 // Fresh level at the current difficulty + a new Bob on the bottom row.
 function newGame() {
   level = generateLevel(completions);
   player = createPlayer(level.grid);
+  traffic = createTraffic(level.lanes, level.speed, GRID_COLS);
 }
 
 function startGame() {
@@ -53,6 +57,7 @@ function toTitle() {
   gameState = next;
   level = null;
   player = null;
+  traffic = null;
 }
 
 // --- canvas ---
@@ -75,6 +80,9 @@ const detachHop = attachHopHandler(window, (dir) => {
   } else if (result.result === 'win') {
     completions++; // difficulty persists: speed = min(4 + completions, 8)
     gameState = nextState(gameState, EVENT.WIN);
+  } else if (result.moved && bobInDanger(traffic, player)) {
+    // Bob hopped into a vehicle: squished (collision is bidirectional).
+    gameState = nextState(gameState, EVENT.DIE);
   }
 });
 void detachHop;
@@ -105,9 +113,13 @@ function frame(t) {
 }
 
 function update(dt) {
-  // M4: Bob hops are event-driven (one hop per keypress).
-  // Vehicle simulation arrives in M5.
-  void dt;
+  if (gameState !== STATE.PLAYING || !traffic) return;
+  updateTraffic(traffic, dt);
+  // Collision is bidirectional: a vehicle driving into Bob kills him too
+  // (checked every frame, not only on Bob's hop).
+  if (bobInDanger(traffic, player)) {
+    gameState = nextState(gameState, EVENT.DIE);
+  }
 }
 
 function render() {
@@ -118,6 +130,7 @@ function render() {
     return;
   }
   drawLayout(ctx, cellPx, level);
+  if (traffic) drawTraffic(ctx, cellPx, traffic);
   if (player) drawPlayer(ctx, cellPx, player);
   if (gameState === STATE.GAME_OVER) {
     drawGameOverOverlay(ctx, cellPx, canvas.width, canvas.height);

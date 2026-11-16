@@ -11,6 +11,8 @@ const COLORS = {
   water: '#3a6ea8',
   lilypad: '#7fc46a',
   localhostLilypad: '#ffd23f',
+  car: '#e0a33a',
+  truck: '#b0653a',
   bush: '#2d5e28',
   pylon: '#8a8a8a',
   player: '#59d64e',
@@ -124,6 +126,24 @@ export function drawLayout(ctx, cellPx, layout, debug = true) {
   drawObstacles(ctx, cellPx, grid);
   drawGridLines(ctx, cellPx);
   if (debug) drawDebugLabels(ctx, cellPx);
+}
+
+/**
+ * Draw the vehicles of a traffic system (M5). Vehicles sit at fractional
+ * column positions, so they are drawn at pixel positions derived from x.
+ */
+export function drawTraffic(ctx, cellPx, traffic) {
+  for (const lane of traffic.lanes) {
+    for (const v of lane.vehicles) {
+      const x = v.x * cellPx;
+      const y = (GRID_ROWS - 1 - lane.rows[1]) * cellPx;
+      ctx.fillStyle = v.kind === 'truck' ? COLORS.truck : COLORS.car;
+      ctx.fillRect(x, y, v.width * cellPx, 2 * cellPx);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, v.width * cellPx - 1, 2 * cellPx - 1);
+    }
+  }
 }
 
 /**
