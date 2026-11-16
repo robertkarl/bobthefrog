@@ -747,5 +747,87 @@ for (const f of mapped) {
 }
 check('all mapped sprite/screen files exist on disk', missing, 0);
 
+// --- M8-integrate: cyan background keying (pure pixel logic) ---
+
+import { keyCyanBackground, isCyan } from '../js/keying.js';
+
+console.log('M8-integrate: cyan background keying (flood-fill from edges):');
+
+// Build a synthetic RGBA buffer: w*h pixels, each [r,g,b,a].
+function makeBuffer(w, h, pixelFn) {
+  const buf = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const [r, g, b, a] = pixelFn(i, Math.floor(i / w), i % w);
+    buf[i * 4] = r;
+    buf[i * 4 + 1] = g;
+    buf[i * 4 + 2] = b;
+    buf[i * 4 + 3] = a;
+  }
+  return buf;
+}
+const CYAN = [40, 225, 255, 255];
+const GREEN = [60, 180, 60, 255];
+
+// 1. All-cyan buffer: every pixel is background, all alpha -> 0.
+{
+  const buf = makeBuffer(4, 4, () => CYAN);
+  const out = keyCyanBackground(4, 4, buf);
+  let transparent = 0;
+  for (let i = 0; i < 16; i++) if (out[i * 4 + 3] === 0) transparent++;
+  check('all-cyan buffer fully keyed (16/16 alpha=0)', transparent, 16);
+}
+
+// 2. Cyan border, interior cyan kept: a 5x5 all-cyan buffer with one
+//    interior cyan pixel that is NOT connected to the edge must survive.
+{
+  const buf = makeBuffer(5, 5, () => CYAN);
+  const out = keyCyanBackground(5, 5, buf);
+  const centerAlpha = out[12 * 4 + 3]; // pixel (2,2)
+  const cornerAlpha = out[3]; // alpha of pixel (0,0)
+  check('corner pixel keyed to alpha 0', cornerAlpha, 0);
+  // The center is cyan and connected to the edge through the ring, so
+  // the whole buffer keys out. (An interior cyan pixel is only kept
+  // when isolated by non-cyan pixels — see test 3.)
+  check('center of all-cyan 5x5 also keyed (connected)', centerAlpha, 0);
+}
+
+// 3. Interior cyan island protected by a non-cyan ring: kept.
+{
+  const px = (i, r, c) => {
+    if (r === 2 && c === 2) return CYAN; // interior cyan pixel
+    if (r === 2 || c === 2) return GREEN; // green ring isolates it
+    return CYAN;
+  };
+  const buf = makeBuffer(5, 5, px);
+  const out = keyCyanBackground(5, 5, buf);
+  check('edge cyan keyed', out[3], 0);
+  check('interior cyan pixel kept (alpha 255)', out[12 * 4 + 3], 255);
+  check('green ring untouched (alpha 255)', out[2 * 5 * 4 + 3], 255);
+}
+
+// 4. Non-cyan corners (a full-bleed tile): nothing is keyed.
+{
+  const buf = makeBuffer(4, 4, () => GREEN);
+  const out = keyCyanBackground(4, 4, buf);
+  let anyTransparent = 0;
+  for (let i = 0; i < 16; i++) if (out[i * 4 + 3] === 0) anyTransparent++;
+  check('non-cyan tile left fully opaque', anyTransparent, 0);
+}
+
+// 5. Tolerance: pixels slightly off the corner color still get keyed.
+{
+  const px = (i, r, c) => (r === 0 || r === 3 || c === 0 || c === 3) ? [70, 200, 250, 255] : [40, 225, 255, 255];
+  const buf = makeBuffer(4, 4, px);
+  const out = keyCyanBackground(4, 4, buf);
+  let transparent = 0;
+  for (let i = 0; i < 16; i++) if (out[i * 4 + 3] === 0) transparent++;
+  check('near-cyan border keyed within tolerance', transparent, 16);
+}
+
+// 6. isCyan sanity: cyan yes, green/water-ish no.
+check('isCyan(40,225,255) true', isCyan(40, 225, 255), true);
+check('isCyan(60,180,60) false (green)', isCyan(60, 180, 60), false);
+check('isCyan(30,120,180) false (plain blue)', isCyan(30, 120, 180), false);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

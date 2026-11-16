@@ -12,8 +12,9 @@ import {
   spriteFile,
   screenFile,
 } from './sprites.js';
+import { keyCyanBackground } from './keying.js';
 
-const images = new Map(); // name -> HTMLImageElement
+const images = new Map(); // name -> drawable (keyed canvas or Image)
 
 // Every (name, path) pair that gets loaded; name is the sprite file name,
 // matching what render code asks for (e.g. getSprite('grass.png')).
@@ -24,6 +25,29 @@ const ALL = [
   [PLAYER_SPRITE, spriteFile(PLAYER_SPRITE)],
   ...Object.values(SCREEN_IMAGES).map((f) => [f, screenFile(f)]),
 ];
+
+/**
+ * Draw the image to an offscreen canvas and key out its cyan background
+ * (flood-fill from the edges; see keying.js). Returns the keyed canvas —
+ * a canvas is directly drawable, so the per-frame draw is unchanged.
+ * If keying throws (e.g. a tainted canvas), fall back to the raw image:
+ * the game must never break on an asset.
+ */
+function keyImage(img) {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const keyed = keyCyanBackground(canvas.width, canvas.height, data.data);
+    ctx.putImageData(new ImageData(keyed, canvas.width, canvas.height), 0, 0);
+    return canvas;
+  } catch {
+    return img;
+  }
+}
 
 /**
  * Load all sprites/screens. `onDone` fires once every image has settled
@@ -37,7 +61,7 @@ export function loadSprites(onDone) {
   for (const [name, path] of ALL) {
     const img = new Image();
     img.onload = () => {
-      images.set(name, img);
+      images.set(name, keyImage(img));
       settle();
     };
     img.onerror = () => settle(); // keep the rectangle fallback
@@ -47,8 +71,9 @@ export function loadSprites(onDone) {
 }
 
 /**
- * The loaded Image for `name`, or null if it is not loaded (yet) or
- * failed. Callers must treat null as "draw the rectangle fallback".
+ * The loaded (cyan-keyed) image for `name`, or null if it is not loaded
+ * (yet) or failed. Callers must treat null as "draw the rectangle
+ * fallback".
  */
 export function getSprite(name) {
   return images.get(name) ?? null;
