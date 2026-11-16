@@ -21,6 +21,11 @@ export const TRUCK_WIDTH = 4; // truck: 4 columns x 2 rows
 export const MIN_GAP = 1; // minimum clearance between vehicles in a lane (cells)
 
 // Constant speed per lane: base 4 cells/s, +1 per completed level, cap 8.
+// M6 tuning review: the ramp is fine as-is. The gap between successive
+// vehicles in a lane is speed * spawnInterval - width, which is at least
+// 4*2 - 2 = 6 cells (base speed, car) and up to 8*2 - 4 = 12 (cap, truck) —
+// 0.75–3 s of clearance, comfortably enough for Bob's 2-hop lane crossing.
+// No adjustment needed.
 export function speedFor(completions) {
   return Math.min(4 + completions, 8);
 }

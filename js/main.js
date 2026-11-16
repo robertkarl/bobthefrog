@@ -10,6 +10,8 @@ import {
   drawTitleOverlay,
   drawGameOverOverlay,
   drawWinOverlay,
+  drawHud,
+  drawMuteIndicator,
 } from './render.js';
 import { generateLevel } from './levelgen/index.js';
 import { attachStartHandler, attachHopHandler } from './input.js';
@@ -208,16 +210,22 @@ function render() {
     } else {
       drawTitleOverlay(ctx, cellPx, canvas.width, canvas.height);
     }
-    return;
+  } else {
+    drawLayout(ctx, cellPx, level);
+    if (traffic) drawTraffic(ctx, cellPx, traffic);
+    if (player) drawPlayer(ctx, cellPx, player);
+    // M6: score/completions counter during PLAYING.
+    if (gameState === STATE.PLAYING) {
+      drawHud(ctx, cellPx, completions);
+    }
+    if (gameState === STATE.GAME_OVER) {
+      drawGameOverOverlay(ctx, cellPx, canvas.width, canvas.height);
+    } else if (gameState === STATE.WIN) {
+      drawWinOverlay(ctx, cellPx, canvas.width, canvas.height);
+    }
   }
-  drawLayout(ctx, cellPx, level);
-  if (traffic) drawTraffic(ctx, cellPx, traffic);
-  if (player) drawPlayer(ctx, cellPx, player);
-  if (gameState === STATE.GAME_OVER) {
-    drawGameOverOverlay(ctx, cellPx, canvas.width, canvas.height);
-  } else if (gameState === STATE.WIN) {
-    drawWinOverlay(ctx, cellPx, canvas.width, canvas.height);
-  }
+  // M6: mute indicator (unobtrusive corner pill) whenever muted.
+  if (isMuted()) drawMuteIndicator(ctx, cellPx, canvas.width);
 }
 
 requestAnimationFrame((t) => {
