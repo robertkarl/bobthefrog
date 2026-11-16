@@ -75,10 +75,12 @@ export function quipClip(text) {
 
 let ctx = null;
 
-function audioCtx() {
+// M6: await resume() so the context is actually running before samples are
+// scheduled (a fire-and-forget resume can drop the first blip).
+async function audioCtx() {
   if (typeof window === 'undefined' || !window.AudioContext) return null;
   if (!ctx) ctx = new window.AudioContext();
-  if (ctx.state === 'suspended') void ctx.resume();
+  if (ctx.state === 'suspended') await ctx.resume();
   return ctx;
 }
 
@@ -159,10 +161,11 @@ function synthesize(c, name) {
 /**
  * Play a procedural SFX by name (one of SFX). No-op when muted or when
  * the Web Audio API is unavailable (e.g. under Node).
+ * M6: async — awaits ctx.resume() when the context is suspended.
  */
-export function sfx(name) {
+export async function sfx(name) {
   if (muted) return;
-  const c = audioCtx();
+  const c = await audioCtx();
   if (!c) return;
   synthesize(c, name);
 }
@@ -172,10 +175,13 @@ export function sfx(name) {
 /**
  * Speak a line via the Web Speech API. No-op when speechSynthesis is
  * unavailable or audio is muted.
+ * M6: also resumes the shared AudioContext (harmless no-op elsewhere),
+ * so quips and SFX both play once audio is unlocked.
  */
-export function speak(text) {
+export async function speak(text) {
   if (muted) return;
   if (typeof speechSynthesis === 'undefined') return;
+  await audioCtx();
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1.1;
@@ -195,7 +201,7 @@ function loadClip(url) {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const bytes = await res.arrayBuffer();
-        const c = audioCtx();
+        const c = await audioCtx();
         if (!c) throw new Error('no AudioContext');
         return c.decodeAudioData(bytes);
       })()
@@ -210,13 +216,13 @@ function loadClip(url) {
  * speechSynthesis when the clip is missing/unloadable or Web Audio is
  * unavailable. No-op when muted (or outside a browser).
  */
-export function quip() {
+export async function quip() {
   const text = pickQuip();
   if (muted) return;
   const clip = quipClip(text);
-  const c = audioCtx();
+  const c = await audioCtx();
   if (!clip || !c) {
-    speak(text);
+    await speak(text);
     return;
   }
   loadClip(clip)

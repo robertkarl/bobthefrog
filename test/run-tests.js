@@ -38,6 +38,7 @@ import {
   GRID_ROWS,
   BASE_CELL_PX,
   MAX_CELL_PX,
+  DT_CLAMP_S,
   cellSizePx,
   canvasSizeFor,
 } from '../js/config.js';
@@ -945,6 +946,57 @@ try {
   audioThrew = true;
 }
 check('playLineAudio/stopLineAudio are safe under Node', audioThrew, false);
+
+// --- M6: polish — dt clamp invariant, HUD, mute indicator, restart sanity ---
+
+console.log('M6: dt clamp / tunneling invariant:');
+// A clamped frame moves a vehicle at most DT_CLAMP_S * speed cells. At the
+// speed cap (8 cells/s) that is 0.1 * 8 = 0.8 cells < 1, so a clamped frame
+// can never carry a vehicle far enough to tunnel past Bob's cell.
+check('clamped frame at max speed moves < 1 cell', DT_CLAMP_S * speedFor(10) < 1, true);
+check('speed cap is 8 cells/s', speedFor(10), 8);
+
+console.log('M6: HUD & mute indicator (fake canvas ctx):');
+import { drawHud, drawMuteIndicator } from '../js/render.js';
+
+// Minimal fake 2D context: records the strings passed to fillText.
+function makeFakeCtx() {
+  const texts = [];
+  return {
+    texts,
+    fillRect: () => {},
+    fillText: (t) => texts.push(t),
+    measureText: (t) => ({ width: t.length * 6 }),
+    font: '',
+    textAlign: '',
+    textBaseline: '',
+    fillStyle: '',
+  };
+}
+{
+  const fctx = makeFakeCtx();
+  drawHud(fctx, 32, 3);
+  check('HUD shows the completion count', fctx.texts.includes('SCORE 3'), true);
+  const fctx2 = makeFakeCtx();
+  drawMuteIndicator(fctx2, 32, 576);
+  check('mute indicator shows MUTED', fctx2.texts.includes('MUTED'), true);
+}
+
+console.log('M6: restart sanity (GAME_OVER + RETRY):');
+// RETRY from GAME_OVER returns to PLAYING, and a fresh game starts with
+// Bob on row 0 and no vehicles on screen (see main.js newGame()).
+check('GAME_OVER + RETRY -> PLAYING', nextState(STATE.GAME_OVER, EVENT.RETRY), STATE.PLAYING);
+{
+  const lanes = [{ rows: [4, 5], dir: 'left' }];
+  const traffic = createTraffic(lanes, 4, GRID_COLS, () => 0.5);
+  check(
+    'fresh traffic has no vehicles',
+    traffic.lanes.reduce((n, l) => n + l.vehicles.length, 0),
+    0,
+  );
+  const p = createPlayer(makeTestGrid());
+  check('fresh Bob starts on row 0', p.row, 0);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

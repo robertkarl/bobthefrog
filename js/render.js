@@ -217,6 +217,40 @@ export function drawPlayer(ctx, cellPx, player) {
 }
 
 /**
+ * M6: small score/completions HUD, shown during PLAYING. Unobtrusive:
+ * a short pill in the top-left corner.
+ */
+export function drawHud(ctx, cellPx, completions) {
+  const text = `SCORE ${completions}`;
+  ctx.font = `${Math.max(8, Math.floor(cellPx * 0.35))}px system-ui`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const w = ctx.measureText(text).width;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillRect(2, 2, w + 10, Math.max(10, Math.floor(cellPx * 0.5)));
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fillText(text, 7, 4);
+  ctx.textAlign = 'left';
+}
+
+/**
+ * M6: small "MUTED" indicator in the top-right corner (shown while
+ * muted). Kept unobtrusive: a short pill, small semi-transparent text.
+ */
+export function drawMuteIndicator(ctx, cellPx, width) {
+  const text = 'MUTED';
+  ctx.font = `${Math.max(8, Math.floor(cellPx * 0.35))}px system-ui`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  const w = ctx.measureText(text).width;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillRect(width - w - 12, 2, w + 12, Math.max(10, Math.floor(cellPx * 0.5)));
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fillText(text, width - 6, 4);
+  ctx.textAlign = 'left';
+}
+
+/**
  * TITLE screen overlay: title text + "Start" prompt.
  */
 export function drawTitleOverlay(ctx, cellPx, width, height) {
